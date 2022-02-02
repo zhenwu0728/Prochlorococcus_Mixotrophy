@@ -1,4 +1,8 @@
 # README
+
+[![DOI](https://zenodo.org/badge/438721739.svg)](https://zenodo.org/badge/latestdoi/438721739)
+
+
 This repository contains the code and scripts for paper "Significant organic carbon acquisition by Prochlorococcus"
 
 ## Growth rate estimation
