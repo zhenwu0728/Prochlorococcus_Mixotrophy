@@ -1,7 +1,7 @@
 # README
 This repository contains the code and scripts for paper "Significant organic carbon acquisition by Prochlorococcus"
 
-## Frowth rate estimation
+## Growth rate estimation
 This folder contains the code to evaluate the potential growth rates at the Equatorial Pacific (EqPac, 0oN, 140oW) and North Pacific Subtropical Gyre (HOT, 22o45’N, 158oW; Station ALOHA). The Jupyter Notebook `figure2.ipynb` runs the scripts and generate Figure 2 in the paper. `Julia v1.6.5` is required to run this notebook. The `Julia` packages used in this notebook include `CSV.jl`, `DataFrames.jl`, `Polynomials.jl`, `Printf.jl`, `Parameters.jl`, `Statistics.jl`. We use `CairoMakie.jl`, and `LaTeXStrings.jl` for plotting.
 
 ## Individual-based simulation
