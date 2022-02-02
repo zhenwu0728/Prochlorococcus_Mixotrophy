@@ -16,7 +16,7 @@ using PlanktonIndividuals
 params_path = "params_mixotroph.yml" # parameters for mixotrophs
 paths_path = "paths_nut_init.yml"
 par_path = "../Input/par_doc.bin"
-nday = 30*9
+nday = 30*12
 println(params_path)
 
 Ogrid = RegularRectilinearGrid(size = (25, 1, 50), extent = (100, 4, 200),topology = (Periodic, Periodic, Bounded),)
