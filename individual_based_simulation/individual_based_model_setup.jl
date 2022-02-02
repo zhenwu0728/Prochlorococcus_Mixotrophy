@@ -15,7 +15,7 @@ using PlanktonIndividuals
 #params_path = "params_autotroph.yml" # parameters for autotrophs
 params_path = "params_mixotroph.yml" # parameters for mixotrophs
 paths_path = "paths_nut_init.yml"
-par_path = "Input/par_doc.bin"
+par_path = "../Input/par_doc.bin"
 nday = 30*9
 println(params_path)
 

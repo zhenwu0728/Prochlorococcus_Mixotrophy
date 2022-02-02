@@ -1,4 +1,4 @@
-using CSV, DataFrames, Statistics
+using Statistics
 
 include("Inomura2020.jl");
 
