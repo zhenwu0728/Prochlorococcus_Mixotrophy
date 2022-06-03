@@ -1,6 +1,6 @@
-using Statistics
+using CSV, DataFrames, Statistics
 
-include("Inomura2020.jl");
+#include("Inomura2020.jl");
 
 function generate_params(PIcurve)
     ESDCell = 0.7   # Prochlorococcus ESD ~0.5-0.7 um
@@ -45,7 +45,7 @@ function generate_params(PIcurve)
     Kin_Fe_Specific = Kin_Fe / (Q_Fe_molar)  # L cell-1 day-1 (mol Fe cell-1)-1 = day-1 / (mol Fe L-1) 
     
     mort = 0.8 # constant death rate
-    K_R = 0.05 # respiration rate, day-1 
+    K_R = 0.05 # respiration rate, day-1
     
     # Partensky et al 1993 .............................
     alpha_Chl_Partensky  = 0.041      # trying out some representative values
@@ -60,13 +60,15 @@ function generate_params(PIcurve)
 
     # Moore and Chisholm (1999) ...........................
     # 9211 Low light strain, adapted at 9 µmol quanta m-2 s-1
-    alpha_Chl_MC_9211_Lo = 0.09  # estimated directly from bar graph
-    P_S_Chl_MC_9211_Lo = 3.0     # guesstimated
+    alpha_Chl_MC_9211_Lo = 0.09   # estimated directly from bar graph
+    P_S_Chl_MC_9211_Lo = 3.0      # guesstimated
     beta_Chl_MC_9211_Lo = 0.010   # guesstimated
+    P_S_Chl_Lo_MM = 97.47         # mol C (mol C in Chl)-1 day-1
     # 9215 High light strain, adapted at 70 µmol quanta m-2 s-1
-    alpha_Chl_MC_9215_Hi = 0.05  # estimated directly from bar graph
-    P_S_Chl_MC_9215_Hi = 8.0     # guesstimated
+    alpha_Chl_MC_9215_Hi = 0.05   # estimated directly from bar graph
+    P_S_Chl_MC_9215_Hi = 8.0      # guesstimated
     beta_Chl_MC_9215_Hi = 0.008   # guesstimated
+    P_S_Chl_Hi_MM = 259.92        # mol C (mol C in Chl)-1 day-1
     
      if PIcurve == "Pa"
         alpha_Chl = alpha_Chl_Partensky
@@ -77,16 +79,40 @@ function generate_params(PIcurve)
         alpha_Chl = alpha_Chl_MC_9211_Lo 
         P_S_Chl = P_S_Chl_MC_9211_Lo
         beta_Chl = beta_Chl_MC_9211_Lo
+        nu_I_max = P_S_Chl_Lo_MM
     end
     if PIcurve == "HL"
         alpha_Chl = alpha_Chl_MC_9215_Hi 
         P_S_Chl = P_S_Chl_MC_9215_Hi
         beta_Chl = beta_Chl_MC_9215_Hi
+        nu_I_max = P_S_Chl_Hi_MM
     end
     # set I_b accordingly 
     I_b = P_S_Chl / beta_Chl 
     
-    return (VNmax = Vmax_NO3_specific, VPmax= Vmax_PO4_specific, KinFe = Kin_Fe_Specific, KN = K_NO3, KP = K_PO4, KR = K_R, mort = mort, alphaChl = alpha_Chl, PSchl = P_S_Chl, Ib = I_b, Qc = Q_C)
+    # MacroMolecule Allocation parameters from Inomura et al. 2020
+    A_Pho = 1.60e1               # mol C (mol C in Chl)-1
+    A_Bio = 2.71e-1              # mol C (mol C)-1 day-1
+    A_RNA_P = 4.23e-3            # mol P (mol C)-1 day
+    A_Pho_PChl = 2.83e-2         # mol P (mol C in Chl)-1
+    Q_C_Pro_Other = 2.40e-1     # mol C (mol C)-1
+    Q_C_Other0 = 1.82e-2         # mol C (mol C)-1
+    Q_C_DNA = 9.41e-4            # mol C (mol C)-1
+    Q_Pmin_RNA = 2.23e-4         # mol P (mol C)-1
+    Y_RNA_CP = 10.7/1.0
+    Y_Plip_CP = 40.0/1.0
+    
+    A_I = alpha_Chl/P_S_Chl
+    E = 7.74e-1                  # synth cost dimensionless
+    m = 3.93e-1 #K_R             # maintenance respiration rate, 3.93e-1 in Inomura et al.
+    
+    return (VNmax = Vmax_NO3_specific, VPmax= Vmax_PO4_specific, 
+        KinFe = Kin_Fe_Specific, KN = K_NO3, KP = K_PO4, KR = K_R, mort = mort,
+        alphaChl = alpha_Chl, PSchl = P_S_Chl, Ib = I_b, Qc = Q_C, 
+        A_Pho = A_Pho, A_Bio = A_Bio, A_RNA_P = A_RNA_P, A_Pho_PChl = A_Pho_PChl,
+        Q_C_Pro_Other = Q_C_Pro_Other, Q_C_Other0 = Q_C_Other0, Q_C_DNA = Q_C_DNA,
+        Q_Pmin_RNA = Q_Pmin_RNA, Y_RNA_CP = Y_RNA_CP, Y_Plip_CP = Y_Plip_CP, 
+        A_I = A_I, nu_I_max = nu_I_max, E = E, m = m)
 end
 
 function nut_min_uptake(input, params)
@@ -119,7 +145,35 @@ function P_Chl(input, params, hPARfrac::Array; photo_inhib = true)
     end
     
     P_Chl = mean(P_Chl_hourly, dims=2)[:,1]
-    return P_Chl # per day
+    return P_Chl # per hour
+end
+
+# nu_I(I), photosynthesis vs light. Evaluate A_Chl and B_Chl
+function photosynth(I,pa)
+    nu_I = pa.nu_I_max*(1.0 - exp(-pa.A_I*I))
+    A_Chl = (1.0 + pa.E)/nu_I
+    B_Chl = pa.m / nu_I
+    return nu_I, A_Chl, B_Chl
+end 
+
+# mu_max_I, max light-limited growth rate for given I (day-1)
+function mu_max_I_eval(A_Chl,B_Chl,pa)
+    # coefficients of quadratic
+    a_M = pa.Y_RNA_CP*pa.A_RNA_P*(pa.A_Pho*A_Chl + pa.A_Bio)
+    b_M = (  (1.0 + pa.A_Pho + pa.Y_Plip_CP*pa.A_Pho_PChl)*A_Chl + pa.A_Bio
+                  + pa.Y_RNA_CP*pa.A_RNA_P*(pa.A_Pho*B_Chl + pa.Q_C_Pro_Other)  )
+    Q_C_Other = pa.Q_C_Other0 + pa.Q_C_DNA + pa.Q_C_Pro_Other
+    c_M = ( (1.0 + pa.A_Pho + pa.Y_Plip_CP*pa.A_Pho_PChl)*B_Chl
+                  + Q_C_Other + pa.Y_RNA_CP*pa.Q_Pmin_RNA - 1.0     )
+    # evaluate root of quadratic
+    mu_max_I = (- b_M + (b_M*b_M - 4.0*a_M*c_M)^0.5 )/(2.0*a_M)
+    return mu_max_I
+end
+
+# Chlorophyll to carbon ratio (moles C in Chl (mol C)-1)
+function ChlC(mu,A_Chl,B_Chl)
+    Q_C_Chl =  A_Chl*mu + B_Chl
+    return Q_C_Chl
 end
 
 function calc_mu(input, params; hPARfrac = nothing, photo_inhib = true)
@@ -145,25 +199,27 @@ function calc_mu(input, params; hPARfrac = nothing, photo_inhib = true)
     # ASSUMES ACCLIMATION HAPPENS ON DAILY TIMESCALE
     # otherwise acclimates Chl:C on hourly scale which leads to odd
     for i in 1:nz
-        A_Chl_out[i] = photosynth(input.PARav[i],pa)[2]
-        B_Chl_out[i] = photosynth(input.PARav[i],pa)[3]
+        A_Chl_out[i] = photosynth(input.PARav[i],params)[2]
+        B_Chl_out[i] = photosynth(input.PARav[i],params)[3]
     end
     
     # Iterative determination of Chl:C, growth rate, biomass
     mu_auto = (1.5 .*  exp.(-input.Depth/150.0))   # first "guess" for mu for initial Chl:C
     for j in 1:40
         for i in 1:nz
-            mumaxI_out[i] = mu_max_I_eval(A_Chl_out[i], B_Chl_out[i], pa)
-            Chl_C[i] = ChlC(mu_auto[i],A_Chl_out[i],B_Chl_out[i],pa) * Chl_factor
-            CN[i] = 1.0 / NC_eval(mu_auto[i],A_Chl_out[i],B_Chl_out[i],pa)
-            CP[i] = 1.0 / PC_eval(mu_auto[i],A_Chl_out[i],B_Chl_out[i],pa)
+            mumaxI_out[i] = mu_max_I_eval(A_Chl_out[i], B_Chl_out[i], params)
+            Chl_C[i] = ChlC(mu_auto[i],A_Chl_out[i],B_Chl_out[i]) * Chl_factor
+            #CN[i] = 1.0 / NC_eval(mu_auto[i],A_Chl_out[i],B_Chl_out[i],pa)
+            #CP[i] = 1.0 / PC_eval(mu_auto[i],A_Chl_out[i],B_Chl_out[i],pa)
         end
         
         # Eval photosynth (d-1): fg C (fg Chl)-1 h-1 * fg Chl (fg C)-1 * h d-1
         Pcalc = P_Chl(input, params, hPARfrac; photo_inhib = photo_inhib) .* Chl_C .* 24.0  # estimated photosynth growth 
-        Pmax = max.(mumaxI_out, 0.0)  # Max possible light-lim growth rate
-        P = min.(Pcalc, Pmax)         # Photosynth "growth rate" 
-        mu_C .= P .- params.KR          # net carbon growth rate
+        mumax = max.(mumaxI_out, 0.0)  # Max possible light-lim growth rate
+        #P = min.(Pcalc, Pmax)         # Photosynth "growth rate" 
+        
+        # maintenance respiration rate used here and in Inomura et al are quite different, almost 10 times
+        mu_C .= min.(mumax, Pcalc .- params.KR)         # net carbon growth rate
         mu_nut .= nut_min_uptake(input, params) # nutrient limited growth rate
         mu_min = min.(mu_C , mu_nut)  # minimal growth rate
         
@@ -178,9 +234,13 @@ function calc_mu(input, params; hPARfrac = nothing, photo_inhib = true)
     B_tot = input.Pro_mu ./ params.mort 
     B_Chl = B_tot .* Chl_C * 12.0   # Chl concentration,  ug Chl L-1
     # estimate cell density # /10^5 cells ml-1
-    Cell_Dens = 1.0e-5 * 1.0e3 .* B_tot ./ params.Qc   # 1000.0* micromol C L-1 / picomol C cell-1
+    CD_tot = 1.0e-5 * 1.0e3 .* B_tot ./ params.Qc   # 1000.0* micromol C L-1 / picomol C cell-1
     
-    return (mu_auto = mu_auto, B = B_tot, Chl = B_Chl, mu_C = mu_C, mu_nut = mu_nut, CellDens = Cell_Dens, mu_het = mu_het)
+    # evaluate biomass from simulated autotrophic growth rate and quadratic grazing
+    B_auto = mu_auto ./ params.mort 
+    CD_auto = 1.0e-5 * 1.0e3 .* B_auto ./ params.Qc   # 1000.0* micromol C L-1 / picomol C cell-1
+    
+    return (mu_auto = mu_auto, B = B_tot, Chl = B_Chl, mu_C = mu_C, mu_nut = mu_nut, CD_tot = CD_tot, mu_het = mu_het, CD_auto = CD_auto)
 end
 
 function output_summary(input, hPARfrac)
@@ -196,24 +256,25 @@ function output_summary(input, hPARfrac)
     
     nz = length(out1.mu_auto)
     
-    output = zeros(nz, 4, 4)
+    output = zeros(nz, 4, 5)
 
     for i in 1:4
         output[:,i,1] = out[i].B
         output[:,i,2] = out[i].mu_auto
         output[:,i,3] = out[i].mu_het
-        output[:,i,4] = out[i].CellDens
+        output[:,i,4] = out[i].CD_auto
+        output[:,i,5] = out[i].CD_tot
     end
     
-    summ = zeros(nz, 3, 4)
+    summ = zeros(nz, 3, 5)
 
-    for i in 1:4
+    for i in 1:5
         summ[:,1,i] = mean(output[:,:,i], dims = 2)
         summ[:,2,i] = minimum(output[:,:,i], dims = 2)
         summ[:,3,i] = maximum(output[:,:,i], dims = 2)
     end
     
-    return summ
+    return summ, output
 end
 
 nothing
